@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="vi"><head><base target="_top"><meta charset="utf-8"><title>AI VĂN THƯ</title>
+<?!= include('CSS') ?></head>
+<body>
+<aside id="side"><h1>AI VĂN THƯ</h1><small id="org"></small>
+  <nav>
+    <a data-v="dash" class="on">Tổng quan</a><a data-v="proc">Xử lý văn bản</a><a data-v="IN">Văn bản đến</a>
+    <a data-v="OUT">Văn bản đi</a><a data-v="log">Nhật ký</a><a data-v="cfg">Cấu hình</a>
+  </nav></aside>
+<main>
+  <section id="v-dash"><h2>Tổng quan</h2>
+    <div class="cards"><div class="card"><span>Văn bản đến</span><b id="s-in">–</b></div><div class="card"><span>Văn bản đi</span><b id="s-out">–</b></div>
+    <div class="card"><span>Chờ duyệt</span><b id="s-pend">0</b></div><div class="card warn"><span>Cảnh báo</span><b id="s-warn">–</b></div></div>
+    <button class="pri" onclick="go('proc')">+ Xử lý văn bản mới</button></section>
+
+  <section id="v-proc" hidden><h2>Xử lý văn bản mới</h2>
+    <div id="drop"><p>Kéo file vào đây (PDF, JPG, PNG, WEBP, TXT – tối đa 10MB)</p><p>hoặc</p>
+      <button class="pri" onclick="$('file').click()">CHỌN FILE</button>
+      <button onclick="$('pastebox').hidden=!$('pastebox').hidden">DÁN VĂN BẢN</button>
+      <input type="file" id="file" hidden accept=".pdf,.jpg,.jpeg,.png,.webp,.txt">
+      <div id="pastebox" hidden><textarea id="pastetxt" rows="8" placeholder="Dán nội dung văn bản..."></textarea><button class="pri" onclick="sendText()">Phân tích</button></div></div>
+    <p id="status"></p>
+    <div id="result" hidden>
+      <div class="split"><div class="pane"><h3>TÀI LIỆU GỐC</h3><div id="orig"></div></div>
+      <div class="pane"><h3>DỮ LIỆU TRÍCH XUẤT</h3><div id="badge"></div><div id="msgs"></div><div id="form"></div>
+        <div id="dup" hidden></div>
+        <div class="actions"><button onclick="reanalyze()">Phân tích lại</button><button onclick="cancel()">Hủy</button>
+        <button class="pri" id="btnSave" onclick="save(false)">✓ XÁC NHẬN &amp; GHI VÀO SỔ</button></div></div></div></div></section>
+
+  <section id="v-list" hidden><h2 id="list-title"></h2><div class="tw"><table id="tbl"></table></div></section>
+  <section id="v-cfg" hidden><h2>Cấu hình</h2><pre id="cfgtxt"></pre><p>Sửa trực tiếp ở sheet “Cấu hình”. API key chỉ nằm trong Script Properties.</p></section>
+</main>
+<div id="toast" hidden></div>
+<?!= include('JS') ?></body></html>

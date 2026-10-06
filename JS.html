@@ -1,0 +1,80 @@
+<script>
+const $=id=>document.getElementById(id), run=(fn,...a)=>new Promise(res=>google.script.run.withSuccessHandler(res).withFailureHandler(e=>res({success:false,error:e.message}))[fn](...a));
+const MAX=10*1024*1024, OK=['application/pdf','image/jpeg','image/png','image/webp','text/plain'];
+let cur=null, last=null; // cur: kết quả đang duyệt; last: payload gần nhất (phục vụ Phân tích lại)
+function toast(m){const t=$('toast');t.textContent=m;t.hidden=false;setTimeout(()=>t.hidden=true,3500)}
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+document.querySelectorAll('nav a').forEach(a=>a.onclick=()=>go(a.dataset.v));
+async function go(v){
+  document.querySelectorAll('nav a').forEach(a=>a.classList.toggle('on',a.dataset.v===v));
+  ['dash','proc','list','cfg'].forEach(x=>$('v-'+x).hidden=true);
+  if(v==='IN'||v==='OUT'||v==='log'){$('v-list').hidden=false;$('list-title').textContent=v==='log'?'Nhật ký':v==='IN'?'Văn bản đến':'Văn bản đi';
+    const r=await run(v==='log'?'apiLog':'apiList',v); if(!r.success)return toast(r.error);
+    $('tbl').innerHTML='<tr>'+r.headers.map(h=>'<th>'+h+'</th>').join('')+'</tr>'+r.rows.map(x=>'<tr>'+x.map(c=>'<td title="'+esc(c)+'">'+esc(c)+'</td>').join('')+'</tr>').join('');
+  } else if(v==='cfg'){$('v-cfg').hidden=false;const r=await run('apiConfig');$('cfgtxt').textContent=r.success?JSON.stringify(r.config,null,2):r.error;}
+  else {$('v-'+v).hidden=false; if(v==='dash')dash();}
+}
+async function dash(){const r=await run('apiDashboard');if(!r.success)return toast(r.error);
+  $('s-in').textContent=r.incoming;$('s-out').textContent=r.outgoing;$('s-warn').textContent=r.warnings;$('org').textContent=r.org;$('s-pend').textContent=cur?1:0;}
+// --- Upload ---
+const drop=$('drop');
+['dragover','dragenter'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.add('over')}));
+['dragleave','drop'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.remove('over')}));
+drop.addEventListener('drop',ev=>{if(ev.dataTransfer.files[0])handleFile(ev.dataTransfer.files[0])});
+$('file').onchange=e=>{if(e.target.files[0])handleFile(e.target.files[0]);e.target.value=''};
+function handleFile(f){
+  const type=f.type||(/\.txt$/i.test(f.name)?'text/plain':'');
+  if(OK.indexOf(type)<0)return toast('Chỉ hỗ trợ PDF, JPG, PNG, WEBP, TXT.');
+  if(f.size>MAX)return toast('File quá lớn (tối đa 10MB).');
+  const rd=new FileReader();
+  rd.onload=()=>{const b64=rd.result.split(',')[1];
+    analyze({fileName:f.name,mimeType:type,data:b64},{file:f,type,url:URL.createObjectURL(f)});};
+  rd.readAsDataURL(f);
+}
+function sendText(){const t=$('pastetxt').value.trim();if(!t)return toast('Chưa có nội dung.');analyze({fileName:'(văn bản dán)',text:t},{text:t});}
+async function analyze(payload,view){
+  last={payload,view};setBusy(true);
+  const r=await run('apiProcess',payload);setBusy(false);
+  if(!r.success)return toast(r.error);
+  cur=r;render(r,view);
+}
+function setBusy(b){const s=$('status');if(!b){s.textContent='';return}
+  const steps=['Đang đọc tài liệu...','Đang phân tích bằng Gemini...','Đang kiểm tra dữ liệu...'];let i=0;s.textContent=steps[0];
+  clearInterval(setBusy.t);setBusy.t=setInterval(()=>{if(!s.textContent)return clearInterval(setBusy.t);s.textContent=steps[Math.min(++i,2)]},4000);}
+// --- Preview / Edit ---
+const LABEL={SoDen:'Số đến',NgayDen:'Ngày đến',SoKyHieuGoc:'Số, ký hiệu gốc',NgayVanBan:'Ngày văn bản',TacGiaCoQuanBanHanh:'Tác giả / cơ quan ban hành',TenLoaiVaTrichYeu:'Tên loại và trích yếu',NguoiNhanThuLy:'Người nhận thụ lý',HanGiaiQuyet:'Hạn giải quyết',ViTriLuuBanCung:'Vị trí lưu bản cứng',SoTT:'Số TT',SoVaKyHieu:'Số và ký hiệu',NgayBanHanh:'Ngày ban hành',TenLoaiVanBan:'Tên loại văn bản',TrichYeuNoiDung:'Trích yếu nội dung',NguoiKyThamQuyen:'Người ký (thẩm quyền)',NoiNhan:'Nơi nhận',SoBan:'Số bản',TrangThaiPhatHanh:'Trạng thái phát hành'};
+function render(r,view){
+  $('result').hidden=false;$('dup').hidden=true;
+  const o=$('orig');o.innerHTML='';
+  if(view&&view.text)o.innerHTML='<pre>'+esc(view.text)+'</pre>';
+  else if(view&&view.type==='application/pdf')o.innerHTML='<iframe src="'+view.url+'"></iframe>';
+  else if(view&&view.type==='text/plain')view.file.text().then(t=>o.innerHTML='<pre>'+esc(t)+'</pre>');
+  else if(view)o.innerHTML='<img src="'+view.url+'">';
+  const pct=r.confidence==null?'':' – Độ tin cậy: '+Math.round(r.confidence*100)+'%';
+  const good=r.kind&&(r.confidence==null||r.confidence>=0.9)&&!r.warnings.length;
+  $('badge').innerHTML=r.kind?'<div class="badge '+(good?'ok':'bad')+'">'+(good?'✓ ':'⚠ CẦN KIỂM TRA: ')+(r.kind==='IN'?'VĂN BẢN ĐẾN':'VĂN BẢN ĐI')+pct+'</div>':'<div class="badge bad">⚠ CẦN KIỂM TRA</div>';
+  $('msgs').innerHTML=r.errors.map(e=>'<div class="msg err">'+esc(e)+'</div>').join('')+r.warnings.map(w=>'<div class="msg">'+esc(w)+'</div>').join('');
+  const f=$('form');f.innerHTML='';
+  if(r.kind){Object.keys(r.result.du_lieu).forEach(k=>{const d=document.createElement('div');d.className='f';
+    d.innerHTML='<label>'+LABEL[k]+'</label><input type="text" data-k="'+k+'" value="'+esc(r.result.du_lieu[k])+'">';f.appendChild(d);});
+    if(r.kind==='OUT'){const b=document.createElement('button');b.textContent='Đề xuất số TT tiếp theo';b.onclick=async()=>{const x=await run('apiNextSoTT');if(x.success)f.querySelector('[data-k=SoTT]').value=x.value;else toast(x.error)};f.appendChild(b);}
+  }
+  $('btnSave').disabled=!r.kind;$('s-pend').textContent=1;
+  if(r.duplicate)showDup(r.matches);
+}
+function showDup(m){const d=$('dup');d.hidden=false;
+  d.innerHTML='<b>⚠ Có văn bản tương tự trong sổ.</b><br>'+m.map(x=>'Dòng '+x.row+': '+esc(Object.values(x.values).filter(Boolean).slice(0,4).join(' | '))).join('<br>')+
+  '<br><button onclick="go(cur.kind)">Xem bản ghi cũ</button><button class="pri" onclick="save(true)">Vẫn ghi</button><button onclick="cancel()">Hủy</button>';}
+function collect(){const d={};document.querySelectorAll('#form [data-k]').forEach(i=>d[i.dataset.k]=i.value.trim()||null);return {loai_so:cur.result.loai_so,du_lieu:d};}
+async function save(force){
+  $('btnSave').disabled=true;
+  const r=await run('apiSave',{result:collect(),fileName:last&&last.payload.fileName,force:!!force});
+  $('btnSave').disabled=false;
+  if(!r.success)return toast(r.error);
+  if(r.duplicate)return showDup(r.matches);
+  toast('Đã ghi vào sổ (dòng '+r.row+').');cancel();
+}
+function reanalyze(){if(last)analyze(last.payload,last.view);}  // CHỈ gọi Gemini khi bấm nút này
+function cancel(){cur=null;$('result').hidden=true;$('s-pend').textContent=0;}
+dash();
+</script>
